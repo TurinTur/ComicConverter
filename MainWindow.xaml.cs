@@ -95,6 +95,7 @@ public partial class MainWindow : Window
 
         bool deleteSource = ChkDeleteSource.IsChecked == true;
         bool copyFinal = ChkCopyFinal.IsChecked == true;
+        bool trimPages = ChkTrimPages.IsChecked == true;
         string zipMode = RbZipSingle.IsChecked == true ? "single" : "individual";
 
         try
@@ -110,6 +111,7 @@ public partial class MainWindow : Window
                 Quality = quality,
                 DeleteSource = deleteSource,
                 CopyFinal = copyFinal,
+                TrimPages = trimPages,
                 ZipMode = zipMode
             };
 

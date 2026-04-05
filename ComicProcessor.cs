@@ -27,6 +27,7 @@ public class ProcessorContext
     public int Quality { get; set; }
     public bool DeleteSource { get; set; }
     public bool CopyFinal { get; set; }
+    public bool TrimPages { get; set; }
     public string ZipMode { get; set; } = string.Empty; // "single" or "individual"
 }
 
@@ -202,17 +203,19 @@ public class ComicProcessor
                     
                     using var image = new MagickImage(file);
                     
-                    // mogrify -trim -define trim:minSize='75%' +repage
-                    var originalArea = image.Width * image.Height;
-                    image.Trim();
-                    var newArea = image.Width * image.Height;
-                    
-                    // Emulate trim:minSize=75%
-                    if (newArea < originalArea * 0.75)
+                    if (_ctx.TrimPages)
                     {
-                        // Reset image if trimmed too much, by rolling back.
-                        // Magick doesn't have a simple undo for Trim, so we just reload.
-                        image.Read(file);
+                        var originalArea = image.Width * image.Height;
+                        image.Trim();
+                        var newArea = image.Width * image.Height;
+                        
+                        // Emulate trim:minSize=75%
+                        if (newArea < originalArea * 0.75)
+                        {
+                            // Reset image if trimmed too much, by rolling back.
+                            // Magick doesn't have a simple undo for Trim, so we just reload.
+                            image.Read(file);
+                        }
                     }
                     else
                     {

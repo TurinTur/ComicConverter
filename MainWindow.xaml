@@ -73,7 +73,8 @@
 
                 <StackPanel Grid.Column="0" Margin="5">
                     <CheckBox x:Name="ChkDeleteSource" Content="Delete Source if final size is smaller" Margin="0,0,0,5"/>
-                    <CheckBox x:Name="ChkCopyFinal" Content="Copy final zip to Final Output Folder" IsChecked="True"/>
+                    <CheckBox x:Name="ChkCopyFinal" Content="Copy final zip to Final Output Folder" IsChecked="True" Margin="0,0,0,5"/>
+                    <CheckBox x:Name="ChkTrimPages" Content="Trim pages (remove borders)" IsChecked="True"/>
                 </StackPanel>
 
                 <StackPanel Grid.Column="1" Margin="5">

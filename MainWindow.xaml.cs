@@ -11,6 +11,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        TxtTempFolder.Text = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "temp");
     }
 
     private void LogActivity(string message)

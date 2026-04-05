@@ -13,21 +13,21 @@ namespace ComicConverter;
 public class ProgressReport
 {
     public int Percentage { get; set; }
-    public string Message { get; set; }
+    public string Message { get; set; } = string.Empty;
 }
 
 public class ProcessorContext
 {
-    public string SourceFolder { get; set; }
-    public string TempFolder { get; set; }
-    public string FinalFolder { get; set; }
-    public string Fallback7z { get; set; }
+    public string SourceFolder { get; set; } = string.Empty;
+    public string TempFolder { get; set; } = string.Empty;
+    public string FinalFolder { get; set; } = string.Empty;
+    public string Fallback7z { get; set; } = string.Empty;
     public int Threads { get; set; }
-    public string Resize { get; set; }
+    public string Resize { get; set; } = string.Empty;
     public int Quality { get; set; }
     public bool DeleteSource { get; set; }
     public bool CopyFinal { get; set; }
-    public string ZipMode { get; set; } // "single" or "individual"
+    public string ZipMode { get; set; } = string.Empty; // "single" or "individual"
 }
 
 public class ComicProcessor

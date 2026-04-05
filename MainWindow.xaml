@@ -1,12 +1,100 @@
-﻿<Window x:Class="ComicConverter.MainWindow"
+<Window x:Class="ComicConverter.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        xmlns:local="clr-namespace:ComicConverter"
-        mc:Ignorable="d"
-        Title="MainWindow" Height="450" Width="800">
-    <Grid>
+        Title="Comic WebP Converter" Height="650" Width="700"
+        WindowStartupLocation="CenterScreen">
+    <Grid Margin="10">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/> <!-- Folders -->
+            <RowDefinition Height="Auto"/> <!-- Settings -->
+            <RowDefinition Height="Auto"/> <!-- Checkboxes & Modes -->
+            <RowDefinition Height="Auto"/> <!-- Start Button & Progress -->
+            <RowDefinition Height="*"/>    <!-- Log -->
+        </Grid.RowDefinitions>
+
+        <!-- FOLDERS -->
+        <GroupBox Header="Directories" Grid.Row="0" Margin="0,0,0,10" Padding="5">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <TextBlock Text="Source Folder:" Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Margin="5"/>
+                <TextBox x:Name="TxtSourceFolder" Grid.Row="0" Grid.Column="1" Margin="5" IsReadOnly="True" ToolTip="Folder containing your original images/archives"/>
+                <Button Content="Browse..." Grid.Row="0" Grid.Column="2" Margin="5" Width="75" Click="BtnBrowseSource_Click"/>
+
+                <TextBlock Text="Temp/Target Folder:" Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Margin="5"/>
+                <TextBox x:Name="TxtTempFolder" Grid.Row="1" Grid.Column="1" Margin="5" IsReadOnly="True" ToolTip="Folder where extraction and conversion happens"/>
+                <Button Content="Browse..." Grid.Row="1" Grid.Column="2" Margin="5" Width="75" Click="BtnBrowseTemp_Click"/>
+
+                <TextBlock Text="Final Output Folder:" Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Margin="5"/>
+                <TextBox x:Name="TxtFinalFolder" Grid.Row="2" Grid.Column="1" Margin="5" IsReadOnly="True" ToolTip="Where the final CBZ files will be copied"/>
+                <Button Content="Browse..." Grid.Row="2" Grid.Column="2" Margin="5" Width="75" Click="BtnBrowseFinal_Click"/>
+
+                <TextBlock Text="Fallback 7z.exe (Opt):" Grid.Row="3" Grid.Column="0" VerticalAlignment="Center" Margin="5"/>
+                <TextBox x:Name="Txt7zPath" Grid.Row="3" Grid.Column="1" Margin="5" IsReadOnly="True" ToolTip="Leave empty to use built-in C# SharpCompress"/>
+                <Button Content="Browse..." Grid.Row="3" Grid.Column="2" Margin="5" Width="75" Click="BtnBrowse7z_Click"/>
+            </Grid>
+        </GroupBox>
+
+        <!-- SETTINGS -->
+        <GroupBox Header="Conversion Settings" Grid.Row="1" Margin="0,0,0,10" Padding="5">
+            <UniformGrid Columns="3">
+                <StackPanel Orientation="Horizontal" Margin="5">
+                    <TextBlock Text="Threads:" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                    <TextBox x:Name="TxtThreads" Width="50" Text="8" VerticalAlignment="Center" ToolTip="Number of parallel conversions"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="5">
+                    <TextBlock Text="Resize:" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                    <TextBox x:Name="TxtResize" Width="60" Text="100%" VerticalAlignment="Center" ToolTip="Image resize (e.g., 100% or 1920x1080)"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="5">
+                    <TextBlock Text="Quality (1-100):" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                    <TextBox x:Name="TxtQuality" Width="50" Text="67" VerticalAlignment="Center" ToolTip="WebP Quality level"/>
+                </StackPanel>
+            </UniformGrid>
+        </GroupBox>
+
+        <!-- CHECKBOXES & MODES -->
+        <GroupBox Header="Options &amp; Mode" Grid.Row="2" Margin="0,0,0,10" Padding="5">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0" Margin="5">
+                    <CheckBox x:Name="ChkDeleteSource" Content="Delete Source if final size is smaller" Margin="0,0,0,5"/>
+                    <CheckBox x:Name="ChkCopyFinal" Content="Copy final zip to Final Output Folder" IsChecked="True"/>
+                </StackPanel>
+
+                <StackPanel Grid.Column="1" Margin="5">
+                    <TextBlock Text="Zip Mode:" FontWeight="Bold" Margin="0,0,0,5"/>
+                    <RadioButton x:Name="RbZipSingle" Content="Single (One CBZ for all)" IsChecked="True" Margin="0,0,0,5"/>
+                    <RadioButton x:Name="RbZipIndividual" Content="Individual (One CBZ per folder/file)"/>
+                </StackPanel>
+            </Grid>
+        </GroupBox>
+
+        <!-- START BUTTON & PROGRESS -->
+        <StackPanel Grid.Row="3" Margin="0,0,0,10">
+            <Button x:Name="BtnStart" Content="START CONVERSION" Height="40" FontSize="16" FontWeight="Bold" Click="BtnStart_Click"/>
+            <ProgressBar x:Name="PbOverall" Height="20" Margin="0,10,0,0"/>
+            <TextBlock x:Name="TxtStatus" Text="Ready" Margin="0,5,0,0" HorizontalAlignment="Center" FontWeight="Bold"/>
+        </StackPanel>
+
+        <!-- LOG -->
+        <GroupBox Header="Log" Grid.Row="4" Padding="5">
+            <TextBox x:Name="TxtLog" IsReadOnly="True" VerticalScrollBarVisibility="Auto" AcceptsReturn="True" TextWrapping="Wrap" FontFamily="Consolas"/>
+        </GroupBox>
 
     </Grid>
 </Window>

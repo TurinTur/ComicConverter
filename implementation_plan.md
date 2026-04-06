@@ -53,3 +53,7 @@ The UI will have a clean, easy-to-use form:
 - Run the WPF application locally.
 - Verify parameters adjust the conversion correctly.
 - Ensure commits are correctly pushed to your GitHub repository once the URL is provided.
+
+## AI Instructions
+
+**CRITICAL RULE:** Every time I (the AI) make a change to the codebase, I must automatically make a local `git commit` with a descriptive summary of my edits without needing the user to remind me.

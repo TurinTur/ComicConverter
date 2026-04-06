@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using ImageMagick;
@@ -34,6 +35,7 @@ public class ProcessorContext
     public double SmartTrimTolerance { get; set; } = 8.0;
     public string ZipMode { get; set; } = string.Empty; // "single" or "individual"
     public bool DeleteTemp { get; set; } = true;
+    public bool IncludeRangeInName { get; set; } = true;
 }
 
 public class ComicProcessor
@@ -315,8 +317,8 @@ public class ComicProcessor
             if (_ctx.ZipMode == "single")
             {
                 // Single CBZ for all items
-                var firstItem = new DirectoryInfo(_ctx.TempFolder).GetFileSystemInfos().FirstOrDefault();
-                string baseName = firstItem != null ? Path.GetFileNameWithoutExtension(firstItem.Name) : new DirectoryInfo(_ctx.TempFolder).Name;
+                var items = new DirectoryInfo(_ctx.TempFolder).GetFileSystemInfos().Select(i => i.Name).ToList();
+                string baseName = GetSmartBaseName(items);
                 string zipPath = GetUniqueFilePath(destDir, $"{baseName}.cbz");
                 ZipFile.CreateFromDirectory(_ctx.TempFolder, zipPath, CompressionLevel.NoCompression, false);
                 totalSize += new FileInfo(zipPath).Length;
@@ -460,6 +462,47 @@ public class ComicProcessor
         {
             dir.Delete(true);
         }
+    }
+
+    private string GetSmartBaseName(IEnumerable<string> items)
+    {
+        var list = items.OrderBy(x => x).ToList();
+        if (list.Count == 0) return new DirectoryInfo(_ctx.TempFolder).Name;
+
+        // Matches common termination markers: v01, vol. 1, ch 10, (2009), 2009
+        string markerPattern = @"(?i)[\s\-_.\(\[]*(v(?:ol)?\.?\s*\d+|ch(?:ap)?\.?\s*\d+|\(?\d{4}\)?)";
+        var regex = new Regex($"^(.*?){markerPattern}", RegexOptions.IgnoreCase);
+
+        if (list.Count == 1)
+        {
+            var match = regex.Match(list[0]);
+            return match.Success ? match.Groups[1].Value.Trim(' ', '-', '_', '.', '(') : Path.GetFileNameWithoutExtension(list[0]);
+        }
+
+        // Multiple items
+        var first = list.First();
+        var last = list.Last();
+        var matchFirst = regex.Match(first);
+        var matchLast = regex.Match(last);
+
+        if (matchFirst.Success && matchLast.Success)
+        {
+            string prefixFirst = matchFirst.Groups[1].Value.Trim(' ', '-', '_', '.', '(');
+            string prefixLast = matchLast.Groups[1].Value.Trim(' ', '-', '_', '.', '(');
+
+            if (prefixFirst.Equals(prefixLast, StringComparison.OrdinalIgnoreCase))
+            {
+                if (!_ctx.IncludeRangeInName) return prefixFirst;
+
+                string markerFirst = matchFirst.Groups[2].Value.Trim(' ', '-', '_', '.', '(', ')');
+                string markerLast = matchLast.Groups[2].Value.Trim(' ', '-', '_', '.', '(', ')');
+                return $"{prefixFirst} {markerFirst}-{markerLast}";
+            }
+        }
+
+        // Fallback if no common pattern: use first item basis
+        var firstMatch = regex.Match(first);
+        return firstMatch.Success ? firstMatch.Groups[1].Value.Trim(' ', '-', '_', '.', '(') : Path.GetFileNameWithoutExtension(first);
     }
 
     private string GetUniqueFilePath(string destDir, string fileName)

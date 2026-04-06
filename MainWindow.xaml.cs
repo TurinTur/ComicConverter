@@ -25,6 +25,7 @@ public class AppSettings
     public string SmartTrimThreshold { get; set; } = "97";
     public string SmartTrimTolerance { get; set; } = "8";
     public string ZipMode { get; set; } = "single";
+    public bool IncludeRangeInName { get; set; } = true;
 }
 
 public partial class MainWindow : Window
@@ -66,6 +67,7 @@ public partial class MainWindow : Window
                     TxtSmartTrimTolerance.Text = settings.SmartTrimTolerance;
                     RbZipSingle.IsChecked = settings.ZipMode == "single";
                     RbZipIndividual.IsChecked = settings.ZipMode == "individual";
+                    ChkIncludeRange.IsChecked = settings.IncludeRangeInName;
                 }
             }
         }
@@ -93,7 +95,8 @@ public partial class MainWindow : Window
                 TrimMinSize = TxtTrimMinSize.Text,
                 SmartTrimThreshold = TxtSmartTrimThreshold.Text,
                 SmartTrimTolerance = TxtSmartTrimTolerance.Text,
-                ZipMode = RbZipSingle.IsChecked == true ? "single" : "individual"
+                ZipMode = RbZipSingle.IsChecked == true ? "single" : "individual",
+                IncludeRangeInName = ChkIncludeRange.IsChecked == true
             };
             var json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(_settingsFile, json);
@@ -190,6 +193,7 @@ public partial class MainWindow : Window
         bool copyFinal = ChkCopyFinal.IsChecked == true;
         bool trimPages = ChkTrimPages.IsChecked == true;
         bool smartTrimPages = ChkSmartTrimPages.IsChecked == true;
+        bool includeRangeInName = ChkIncludeRange.IsChecked == true;
         
         double.TryParse(TxtTrimMinSize.Text, out double trimMinSizePct);
         if (trimMinSizePct <= 0) trimMinSizePct = 75;
@@ -223,7 +227,8 @@ public partial class MainWindow : Window
                 TrimMinSize = trimMinSize,
                 SmartTrimThreshold = smartTrimThreshold,
                 SmartTrimTolerance = smartTrimTolerance,
-                ZipMode = zipMode
+                ZipMode = zipMode,
+                IncludeRangeInName = includeRangeInName
             };
 
             var progress = new Progress<ProgressReport>(report =>

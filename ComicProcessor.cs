@@ -29,6 +29,9 @@ public class ProcessorContext
     public bool CopyFinal { get; set; }
     public bool TrimPages { get; set; }
     public bool SmartTrimPages { get; set; }
+    public double TrimMinSize { get; set; } = 0.75;
+    public double SmartTrimThreshold { get; set; } = 0.97;
+    public double SmartTrimTolerance { get; set; } = 8.0;
     public string ZipMode { get; set; } = string.Empty; // "single" or "individual"
     public bool DeleteTemp { get; set; } = true;
 }
@@ -234,10 +237,10 @@ public class ComicProcessor
                             testClone.Trim();
                             testClone.ResetPage();
                             
-                            // trim:minSize=75% means the trimmed result must be >= 75% of original
+                            // trim:minSize means the trimmed result must be >= user setting
                             // in EACH dimension (width and height), matching magick's behaviour
-                            bool widthOk  = testClone.Width  >= image.Width  * 0.75;
-                            bool heightOk = testClone.Height >= image.Height * 0.75;
+                            bool widthOk  = testClone.Width  >= image.Width  * _ctx.TrimMinSize;
+                            bool heightOk = testClone.Height >= image.Height * _ctx.TrimMinSize;
                             
                             if (widthOk && heightOk)
                             {
@@ -254,11 +257,11 @@ public class ComicProcessor
                     // even if a small portion (like a page number) interrupts the edge
                     if (_ctx.SmartTrimPages)
                     {
-                        var bounds = CalculateSmartTrimBounds(image, rowBgThreshold: 0.97, colorTolerancePct: 8.0);
+                        var bounds = CalculateSmartTrimBounds(image, rowBgThreshold: _ctx.SmartTrimThreshold, colorTolerancePct: _ctx.SmartTrimTolerance);
                         if (bounds is not null)
                         {
-                            bool widthOk  = bounds.Width  >= image.Width  * 0.75;
-                            bool heightOk = bounds.Height >= image.Height * 0.75;
+                            bool widthOk  = bounds.Width  >= image.Width  * _ctx.TrimMinSize;
+                            bool heightOk = bounds.Height >= image.Height * _ctx.TrimMinSize;
                             if (widthOk && heightOk)
                             {
                                 image.Crop(bounds);
@@ -314,9 +317,7 @@ public class ComicProcessor
                 // Single CBZ for all items
                 var firstItem = new DirectoryInfo(_ctx.TempFolder).GetFileSystemInfos().FirstOrDefault();
                 string baseName = firstItem != null ? Path.GetFileNameWithoutExtension(firstItem.Name) : new DirectoryInfo(_ctx.TempFolder).Name;
-                string zipPath = Path.Combine(destDir, $"{baseName}.cbz");
-
-                if (File.Exists(zipPath)) File.Delete(zipPath);
+                string zipPath = GetUniqueFilePath(destDir, $"{baseName}.cbz");
                 ZipFile.CreateFromDirectory(_ctx.TempFolder, zipPath, CompressionLevel.NoCompression, false);
                 totalSize += new FileInfo(zipPath).Length;
             }
@@ -326,8 +327,7 @@ public class ComicProcessor
                 {
                     cancelToken.ThrowIfCancellationRequested();
                     var dInfo = new DirectoryInfo(dir);
-                    string zipPath = Path.Combine(destDir, $"{dInfo.Name}.cbz");
-                    if (File.Exists(zipPath)) File.Delete(zipPath);
+                    string zipPath = GetUniqueFilePath(destDir, $"{dInfo.Name}.cbz");
                     ZipFile.CreateFromDirectory(dir, zipPath, CompressionLevel.NoCompression, false);
                     totalSize += new FileInfo(zipPath).Length;
                 }
@@ -335,8 +335,7 @@ public class ComicProcessor
                 foreach (var file in Directory.GetFiles(_ctx.TempFolder))
                 {
                     cancelToken.ThrowIfCancellationRequested();
-                    string zipPath = Path.Combine(destDir, $"{Path.GetFileNameWithoutExtension(file)}.cbz");
-                    if (File.Exists(zipPath)) File.Delete(zipPath);
+                    string zipPath = GetUniqueFilePath(destDir, $"{Path.GetFileNameWithoutExtension(file)}.cbz");
                     using var archive = ZipFile.Open(zipPath, ZipArchiveMode.Create);
                     archive.CreateEntryFromFile(file, Path.GetFileName(file), CompressionLevel.NoCompression);
                     totalSize += new FileInfo(zipPath).Length;
@@ -461,5 +460,20 @@ public class ComicProcessor
         {
             dir.Delete(true);
         }
+    }
+
+    private string GetUniqueFilePath(string destDir, string fileName)
+    {
+        string fullPath = Path.Combine(destDir, fileName);
+        if (!File.Exists(fullPath)) return fullPath;
+
+        string name = Path.GetFileNameWithoutExtension(fileName);
+        string ext = Path.GetExtension(fileName);
+        int i = 1;
+        while (File.Exists(fullPath = Path.Combine(destDir, $"{name}_{i:D3}{ext}")))
+        {
+            i++;
+        }
+        return fullPath;
     }
 }

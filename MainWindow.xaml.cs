@@ -21,6 +21,9 @@ public class AppSettings
     public bool CopyFinal { get; set; } = true;
     public bool TrimPages { get; set; } = true;
     public bool SmartTrimPages { get; set; } = false;
+    public string TrimMinSize { get; set; } = "75";
+    public string SmartTrimThreshold { get; set; } = "97";
+    public string SmartTrimTolerance { get; set; } = "8";
     public string ZipMode { get; set; } = "single";
 }
 
@@ -58,6 +61,9 @@ public partial class MainWindow : Window
                     ChkCopyFinal.IsChecked = settings.CopyFinal;
                     ChkTrimPages.IsChecked = settings.TrimPages;
                     ChkSmartTrimPages.IsChecked = settings.SmartTrimPages;
+                    TxtTrimMinSize.Text = settings.TrimMinSize;
+                    TxtSmartTrimThreshold.Text = settings.SmartTrimThreshold;
+                    TxtSmartTrimTolerance.Text = settings.SmartTrimTolerance;
                     RbZipSingle.IsChecked = settings.ZipMode == "single";
                     RbZipIndividual.IsChecked = settings.ZipMode == "individual";
                 }
@@ -84,6 +90,9 @@ public partial class MainWindow : Window
                 CopyFinal = ChkCopyFinal.IsChecked == true,
                 TrimPages = ChkTrimPages.IsChecked == true,
                 SmartTrimPages = ChkSmartTrimPages.IsChecked == true,
+                TrimMinSize = TxtTrimMinSize.Text,
+                SmartTrimThreshold = TxtSmartTrimThreshold.Text,
+                SmartTrimTolerance = TxtSmartTrimTolerance.Text,
                 ZipMode = RbZipSingle.IsChecked == true ? "single" : "individual"
             };
             var json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
@@ -181,6 +190,18 @@ public partial class MainWindow : Window
         bool copyFinal = ChkCopyFinal.IsChecked == true;
         bool trimPages = ChkTrimPages.IsChecked == true;
         bool smartTrimPages = ChkSmartTrimPages.IsChecked == true;
+        
+        double.TryParse(TxtTrimMinSize.Text, out double trimMinSizePct);
+        if (trimMinSizePct <= 0) trimMinSizePct = 75;
+        double trimMinSize = trimMinSizePct / 100.0;
+
+        double.TryParse(TxtSmartTrimThreshold.Text, out double smartTrimThresholdPct);
+        if (smartTrimThresholdPct <= 0) smartTrimThresholdPct = 97;
+        double smartTrimThreshold = smartTrimThresholdPct / 100.0;
+
+        double.TryParse(TxtSmartTrimTolerance.Text, out double smartTrimTolerance);
+        if (smartTrimTolerance < 0) smartTrimTolerance = 8.0;
+
         string zipMode = RbZipSingle.IsChecked == true ? "single" : "individual";
 
         try
@@ -199,6 +220,9 @@ public partial class MainWindow : Window
                 CopyFinal = copyFinal,
                 TrimPages = trimPages,
                 SmartTrimPages = smartTrimPages,
+                TrimMinSize = trimMinSize,
+                SmartTrimThreshold = smartTrimThreshold,
+                SmartTrimTolerance = smartTrimTolerance,
                 ZipMode = zipMode
             };
 

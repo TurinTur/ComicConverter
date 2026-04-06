@@ -1,7 +1,7 @@
 <Window x:Class="ComicConverter.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Comic WebP Converter" Height="650" Width="700"
+        Title="Comic WebP Converter" Height="850" Width="800" MinHeight="700" MinWidth="750"
         WindowStartupLocation="CenterScreen"
         Closing="Window_Closing">
     <Grid Margin="10">
@@ -84,6 +84,28 @@
                     <TextBlock Text="Zip Mode:" FontWeight="Bold" Margin="0,0,0,5"/>
                     <RadioButton x:Name="RbZipSingle" Content="Single (One CBZ for all)" IsChecked="True" Margin="0,0,0,5"/>
                     <RadioButton x:Name="RbZipIndividual" Content="Individual (One CBZ per folder/file)"/>
+                    
+                    <TextBlock Text="Trim Settings:" FontWeight="Bold" Margin="0,10,0,5"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        
+                        <TextBlock Text="Min Size (%):" Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Margin="0,2,5,2"/>
+                        <TextBox x:Name="TxtTrimMinSize" Grid.Row="0" Grid.Column="1" Width="40" HorizontalAlignment="Left" Text="75" Margin="0,2,0,2" ToolTip="Minimum size after trim (default 75)"/>
+
+                        <TextBlock Text="Smart Threshold (%):" Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Margin="0,2,5,2"/>
+                        <TextBox x:Name="TxtSmartTrimThreshold" Grid.Row="1" Grid.Column="1" Width="40" HorizontalAlignment="Left" Text="97" Margin="0,2,0,2" ToolTip="Percentage of background pixels (default 97)"/>
+
+                        <TextBlock Text="Smart Tolerance (%):" Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Margin="0,2,5,2"/>
+                        <TextBox x:Name="TxtSmartTrimTolerance" Grid.Row="2" Grid.Column="1" Width="40" HorizontalAlignment="Left" Text="8" Margin="0,2,0,2" ToolTip="Color distance tolerance (default 8)"/>
+                    </Grid>
                 </StackPanel>
             </Grid>
         </GroupBox>

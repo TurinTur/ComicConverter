@@ -29,6 +29,7 @@ public class ProcessorContext
     public bool CopyFinal { get; set; }
     public bool TrimPages { get; set; }
     public string ZipMode { get; set; } = string.Empty; // "single" or "individual"
+    public bool DeleteTemp { get; set; } = true;
 }
 
 public class ComicProcessor
@@ -73,11 +74,21 @@ public class ComicProcessor
         Report(85, "Step 5: Archiving results to CBZ...");
         string destDir = _ctx.CopyFinal ? _ctx.FinalFolder : _ctx.TempFolder;
         Directory.CreateDirectory(destDir);
-        await ArchiveResultsAsync(destDir, cancelToken);
+        long finalArchiveSize = await ArchiveResultsAsync(destDir, cancelToken);
 
         // Calculate final zip size
-        long finalArchiveSize = CalculateDirectorySize(destDir);
-        Report(95, $"Final converted size: {finalArchiveSize / (1024 * 1024)} MB");
+        string sizeReport = $"Final converted size: {finalArchiveSize / (1024 * 1024)} MB";
+        if (initialSize > 0 && finalArchiveSize < initialSize)
+        {
+            double reduction = ((double)(initialSize - finalArchiveSize) / initialSize) * 100;
+            sizeReport += $", {Math.Round(reduction)}% size reduction improvement";
+        }
+        else if (initialSize > 0 && finalArchiveSize > initialSize)
+        {
+            double increase = ((double)(finalArchiveSize - initialSize) / initialSize) * 100;
+            sizeReport += $", {Math.Round(increase)}% size increase";
+        }
+        Report(95, sizeReport);
 
         // Step 6: Cleanup Source if smaller
         if (_ctx.DeleteSource)
@@ -94,8 +105,15 @@ public class ComicProcessor
         }
 
         // Cleanup Temp Folder
-        Report(99, "Cleaning up temp folder...");
-        DeleteDirectoryContents(_ctx.TempFolder);
+        if (_ctx.DeleteTemp)
+        {
+            Report(99, "Cleaning up temp folder...");
+            DeleteDirectoryContents(_ctx.TempFolder);
+        }
+        else
+        {
+            Report(99, "Skipping temp folder cleanup.");
+        }
 
         stopwatch.Stop();
         Report(100, $"Process completed in {stopwatch.Elapsed.TotalMinutes:F2} minutes.");
@@ -172,6 +190,7 @@ public class ComicProcessor
         var filesToProcess = allFiles.Where(f => imageExts.Contains(Path.GetExtension(f).ToLowerInvariant())).ToList();
         int total = filesToProcess.Count;
         int completed = 0;
+        bool missingDllLogged = false;
 
         if (total == 0) return;
 
@@ -233,7 +252,16 @@ public class ComicProcessor
                 }
                 catch (Exception ex)
                 {
-                    Debug.WriteLine($"Failed to process {file}: {ex.Message}");
+                    if ((ex is DllNotFoundException || ex is TypeInitializationException) && !missingDllLogged)
+                    {
+                        missingDllLogged = true;
+                        Report(0, $"CRITICAL ERROR: Failed to load ImageMagick DLL. Ensure the Magick.NET DLL is present. Details: {ex.Message}");
+                    }
+                    else if (!missingDllLogged)
+                    {
+                        Debug.WriteLine($"Failed to process {file}: {ex.Message}");
+                    }
+
                     // Copy original file as fallback if conversion fails
                     string relativePath = file.Substring(_ctx.SourceFolder.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
                     string destPath = Path.Combine(_ctx.TempFolder, relativePath);
@@ -250,10 +278,11 @@ public class ComicProcessor
         });
     }
 
-    private async Task ArchiveResultsAsync(string destDir, CancellationToken cancelToken)
+    private async Task<long> ArchiveResultsAsync(string destDir, CancellationToken cancelToken)
     {
-        await Task.Run(() =>
+        return await Task.Run(() =>
         {
+            long totalSize = 0;
             if (_ctx.ZipMode == "single")
             {
                 // Single CBZ for all items
@@ -263,6 +292,7 @@ public class ComicProcessor
 
                 if (File.Exists(zipPath)) File.Delete(zipPath);
                 ZipFile.CreateFromDirectory(_ctx.TempFolder, zipPath, CompressionLevel.NoCompression, false);
+                totalSize += new FileInfo(zipPath).Length;
             }
             else // "individual"
             {
@@ -273,6 +303,7 @@ public class ComicProcessor
                     string zipPath = Path.Combine(destDir, $"{dInfo.Name}.cbz");
                     if (File.Exists(zipPath)) File.Delete(zipPath);
                     ZipFile.CreateFromDirectory(dir, zipPath, CompressionLevel.NoCompression, false);
+                    totalSize += new FileInfo(zipPath).Length;
                 }
 
                 foreach (var file in Directory.GetFiles(_ctx.TempFolder))
@@ -282,8 +313,10 @@ public class ComicProcessor
                     if (File.Exists(zipPath)) File.Delete(zipPath);
                     using var archive = ZipFile.Open(zipPath, ZipArchiveMode.Create);
                     archive.CreateEntryFromFile(file, Path.GetFileName(file), CompressionLevel.NoCompression);
+                    totalSize += new FileInfo(zipPath).Length;
                 }
             }
+            return totalSize;
         }, cancelToken);
     }
 

@@ -1,10 +1,27 @@
 using System;
 using System.IO;
 using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows;
 
 namespace ComicConverter;
+
+public class AppSettings
+{
+    public string SourceFolder { get; set; } = string.Empty;
+    public string TempFolder { get; set; } = string.Empty;
+    public string FinalFolder { get; set; } = string.Empty;
+    public string Fallback7z { get; set; } = string.Empty;
+    public string Threads { get; set; } = string.Empty;
+    public string Resize { get; set; } = "100%";
+    public string Quality { get; set; } = "67";
+    public bool DeleteSource { get; set; } = false;
+    public bool DeleteTemp { get; set; } = true;
+    public bool CopyFinal { get; set; } = true;
+    public bool TrimPages { get; set; } = true;
+    public string ZipMode { get; set; } = "single";
+}
 
 public partial class MainWindow : Window
 {
@@ -12,6 +29,69 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         TxtTempFolder.Text = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "temp");
+        TxtThreads.Text = (Environment.ProcessorCount -1).ToString();
+        LoadSettings();
+    }
+
+    private readonly string _settingsFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "settings.json");
+
+    private void LoadSettings()
+    {
+        try
+        {
+            if (File.Exists(_settingsFile))
+            {
+                var json = File.ReadAllText(_settingsFile);
+                var settings = JsonSerializer.Deserialize<AppSettings>(json);
+                if (settings != null)
+                {
+                    TxtSourceFolder.Text = settings.SourceFolder;
+                    if (!string.IsNullOrWhiteSpace(settings.TempFolder)) TxtTempFolder.Text = settings.TempFolder;
+                    TxtFinalFolder.Text = settings.FinalFolder;
+                    Txt7zPath.Text = settings.Fallback7z;
+                    if (!string.IsNullOrWhiteSpace(settings.Threads)) TxtThreads.Text = settings.Threads;
+                    TxtResize.Text = settings.Resize;
+                    TxtQuality.Text = settings.Quality;
+                    ChkDeleteSource.IsChecked = settings.DeleteSource;
+                    ChkDeleteTemp.IsChecked = settings.DeleteTemp;
+                    ChkCopyFinal.IsChecked = settings.CopyFinal;
+                    ChkTrimPages.IsChecked = settings.TrimPages;
+                    RbZipSingle.IsChecked = settings.ZipMode == "single";
+                    RbZipIndividual.IsChecked = settings.ZipMode == "individual";
+                }
+            }
+        }
+        catch { /* ignored */ }
+    }
+
+    private void SaveSettings()
+    {
+        try
+        {
+            var settings = new AppSettings
+            {
+                SourceFolder = TxtSourceFolder.Text,
+                TempFolder = TxtTempFolder.Text,
+                FinalFolder = TxtFinalFolder.Text,
+                Fallback7z = Txt7zPath.Text,
+                Threads = TxtThreads.Text,
+                Resize = TxtResize.Text,
+                Quality = TxtQuality.Text,
+                DeleteSource = ChkDeleteSource.IsChecked == true,
+                DeleteTemp = ChkDeleteTemp.IsChecked == true,
+                CopyFinal = ChkCopyFinal.IsChecked == true,
+                TrimPages = ChkTrimPages.IsChecked == true,
+                ZipMode = RbZipSingle.IsChecked == true ? "single" : "individual"
+            };
+            var json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(_settingsFile, json);
+        }
+        catch { /* ignored */ }
+    }
+
+    private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
+    {
+        SaveSettings();
     }
 
     private void LogActivity(string message)
@@ -94,6 +174,7 @@ public partial class MainWindow : Window
         if (quality <= 0) quality = 67;
 
         bool deleteSource = ChkDeleteSource.IsChecked == true;
+        bool deleteTemp = ChkDeleteTemp.IsChecked == true;
         bool copyFinal = ChkCopyFinal.IsChecked == true;
         bool trimPages = ChkTrimPages.IsChecked == true;
         string zipMode = RbZipSingle.IsChecked == true ? "single" : "individual";
@@ -110,6 +191,7 @@ public partial class MainWindow : Window
                 Resize = resize,
                 Quality = quality,
                 DeleteSource = deleteSource,
+                DeleteTemp = deleteTemp,
                 CopyFinal = copyFinal,
                 TrimPages = trimPages,
                 ZipMode = zipMode

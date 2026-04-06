@@ -76,7 +76,8 @@
                     <CheckBox x:Name="ChkDeleteSource" Content="Delete Source if final size is smaller" Margin="0,0,0,5"/>
                     <CheckBox x:Name="ChkDeleteTemp" Content="Delete Temp Folder at end" IsChecked="True" Margin="0,0,0,5"/>
                     <CheckBox x:Name="ChkCopyFinal" Content="Copy final zip to Final Output Folder" IsChecked="True" Margin="0,0,0,5"/>
-                    <CheckBox x:Name="ChkTrimPages" Content="Trim pages (remove borders)" IsChecked="True"/>
+                    <CheckBox x:Name="ChkTrimPages" Content="Trim pages (remove borders)" IsChecked="True" Margin="0,0,0,5"/>
+                    <CheckBox x:Name="ChkSmartTrimPages" Content="Smart Trim (ignore small elements like page numbers)" ToolTip="Trims borders where ≥97% of pixels match the background, even if a page number interrupts the edge"/>
                 </StackPanel>
 
                 <StackPanel Grid.Column="1" Margin="5">

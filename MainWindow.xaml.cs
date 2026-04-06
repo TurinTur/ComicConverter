@@ -20,6 +20,7 @@ public class AppSettings
     public bool DeleteTemp { get; set; } = true;
     public bool CopyFinal { get; set; } = true;
     public bool TrimPages { get; set; } = true;
+    public bool SmartTrimPages { get; set; } = false;
     public string ZipMode { get; set; } = "single";
 }
 
@@ -56,6 +57,7 @@ public partial class MainWindow : Window
                     ChkDeleteTemp.IsChecked = settings.DeleteTemp;
                     ChkCopyFinal.IsChecked = settings.CopyFinal;
                     ChkTrimPages.IsChecked = settings.TrimPages;
+                    ChkSmartTrimPages.IsChecked = settings.SmartTrimPages;
                     RbZipSingle.IsChecked = settings.ZipMode == "single";
                     RbZipIndividual.IsChecked = settings.ZipMode == "individual";
                 }
@@ -81,6 +83,7 @@ public partial class MainWindow : Window
                 DeleteTemp = ChkDeleteTemp.IsChecked == true,
                 CopyFinal = ChkCopyFinal.IsChecked == true,
                 TrimPages = ChkTrimPages.IsChecked == true,
+                SmartTrimPages = ChkSmartTrimPages.IsChecked == true,
                 ZipMode = RbZipSingle.IsChecked == true ? "single" : "individual"
             };
             var json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
@@ -177,6 +180,7 @@ public partial class MainWindow : Window
         bool deleteTemp = ChkDeleteTemp.IsChecked == true;
         bool copyFinal = ChkCopyFinal.IsChecked == true;
         bool trimPages = ChkTrimPages.IsChecked == true;
+        bool smartTrimPages = ChkSmartTrimPages.IsChecked == true;
         string zipMode = RbZipSingle.IsChecked == true ? "single" : "individual";
 
         try
@@ -194,6 +198,7 @@ public partial class MainWindow : Window
                 DeleteTemp = deleteTemp,
                 CopyFinal = copyFinal,
                 TrimPages = trimPages,
+                SmartTrimPages = smartTrimPages,
                 ZipMode = zipMode
             };
 

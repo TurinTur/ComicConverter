@@ -226,6 +226,7 @@ public class ComicProcessor
                     {
                         var originalArea = image.Width * image.Height;
                         image.Trim();
+                        image.RePage(); // Crucial to actually resize the canvas after Trim
                         var newArea = image.Width * image.Height;
                         
                         // Emulate trim:minSize=75%
@@ -235,10 +236,6 @@ public class ComicProcessor
                             // Magick doesn't have a simple undo for Trim, so we just reload.
                             image.Read(file);
                         }
-                    }
-                    else
-                    {
-                        // Repage not strictly needed for WebP out, Trim does the job
                     }
 
                     if (magResize.HasValue)

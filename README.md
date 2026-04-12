@@ -16,7 +16,11 @@ To create a single-file production binary or a standalone package, you can use t
 
 ```bash
 dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
+dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -o C:\temp\ComicConverter\publish
+dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:DebugType=None -o C:\temp\ComicConverter\publish
+dotnet publish -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -p:DebugType=None -o C:\temp\ComicConverter\publish_small
 ```
+gh release create v1.0.2 "C:\temp\ComicConverter\publish\Comic Webp Conveter 1.02.zip" --title "Comic Converter v1.0.2" --notes "Mutiple file selection added"
 
 Take the output from `bin\Release\net8.0-windows\win-x64\publish` and package it.
 

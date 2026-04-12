@@ -1,0 +1,23 @@
+{
+  "SourceItems": [
+    "C:\\Users\\josed\\Downloads\\Daemons of the Shadow Realm v11 (Digital-Compilation) (Oakii).cbz",
+    "C:\\Users\\josed\\Downloads\\Daemons of the Shadow Realm v12 (Digital-Compilation) (Oakii).cbz",
+    "C:\\Users\\josed\\Downloads\\Daemons of the Shadow Realm v10 (Digital-Compilation) (Oakii).cbz"
+  ],
+  "TempFolder": "C:\\temp\\ComicConverter\\publish_small\\temp",
+  "FinalFolder": "c:\\temp\\testnet",
+  "Fallback7z": "",
+  "Threads": "11",
+  "Resize": "100%",
+  "Quality": "67",
+  "DeleteSource": false,
+  "DeleteTemp": true,
+  "CopyFinal": true,
+  "TrimPages": true,
+  "SmartTrimPages": true,
+  "TrimMinSize": "75",
+  "SmartTrimThreshold": "97",
+  "SmartTrimTolerance": "8",
+  "ZipMode": "single",
+  "IncludeRangeInName": true
+}

@@ -19,7 +19,7 @@ public class ProgressReport
 
 public class ProcessorContext
 {
-    public string SourceFolder { get; set; } = string.Empty;
+    public List<string> SourceItems { get; set; } = new();
     public string TempFolder { get; set; } = string.Empty;
     public string FinalFolder { get; set; } = string.Empty;
     public string Fallback7z { get; set; } = string.Empty;
@@ -58,20 +58,23 @@ public class ComicProcessor
     {
         var stopwatch = Stopwatch.StartNew();
         
-        long initialSize = CalculateDirectorySize(_ctx.SourceFolder);
+        long initialSize = CalculateInitialSize();
         Report(0, $"Initial size: {initialSize / (1024 * 1024)} MB");
+
+        // We'll work with a local list so we can add extracted folders to it
+        var workItems = _ctx.SourceItems.ToList();
 
         // Step 1: Extract archives
         Report(5, "Step 1 & 2: Extracting archives...");
-        await ExtractArchivesAsync(cancelToken);
+        workItems = await ExtractArchivesToTempAsync(workItems, cancelToken);
 
         // Step 3: Create folder structure in Target
         Report(20, "Step 3: Creating target folder structure...");
-        ReplicateFolderStructure(_ctx.SourceFolder, _ctx.TempFolder);
+        ReplicateFolderStructure(workItems, _ctx.TempFolder);
 
         // Step 4: Convert images to WebP
         Report(25, "Step 4: Converting images to WebP...");
-        await ConvertImagesAsync(cancelToken);
+        await ConvertImagesAsync(workItems, cancelToken);
 
         long finalSize = CalculateDirectorySize(_ctx.TempFolder);
         Report(80, $"Conversion complete. Target temp size: {finalSize / (1024 * 1024)} MB");
@@ -102,7 +105,11 @@ public class ComicProcessor
             if (finalArchiveSize <= initialSize && finalArchiveSize > 0)
             {
                 Report(98, "Step 6: Final size is smaller. Deleting source files...");
-                DeleteDirectoryContents(_ctx.SourceFolder);
+                foreach (var item in _ctx.SourceItems)
+                {
+                    if (Directory.Exists(item)) Directory.Delete(item, true);
+                    else if (File.Exists(item)) File.Delete(item);
+                }
             }
             else
             {
@@ -125,76 +132,150 @@ public class ComicProcessor
         Report(100, $"Process completed in {stopwatch.Elapsed.TotalMinutes:F2} minutes.");
     }
 
-    private async Task ExtractArchivesAsync(CancellationToken cancelToken)
+    private long CalculateInitialSize()
+    {
+        long total = 0;
+        foreach (var item in _ctx.SourceItems)
+        {
+            if (Directory.Exists(item)) total += CalculateDirectorySize(item);
+            else if (File.Exists(item)) total += new FileInfo(item).Length;
+        }
+        return total;
+    }
+
+    private async Task<List<string>> ExtractArchivesToTempAsync(List<string> items, CancellationToken cancelToken)
     {
         var exts = new[] { ".zip", ".7z", ".cbz", ".cbr", ".rar" };
-        var filesToExtract = Directory.GetFiles(_ctx.SourceFolder, "*.*", SearchOption.AllDirectories)
-                                      .Where(f => exts.Contains(Path.GetExtension(f).ToLowerInvariant()))
-                                      .ToList();
-
-        if (!filesToExtract.Any()) return;
-
+        var results = new List<string>();
+        string extractionRoot = Path.Combine(_ctx.TempFolder, "_extracted");
+        
         bool use7z = !string.IsNullOrWhiteSpace(_ctx.Fallback7z) && File.Exists(_ctx.Fallback7z);
 
-        foreach (var file in filesToExtract)
+        foreach (var item in items)
         {
             cancelToken.ThrowIfCancellationRequested();
-            string destFolder = Path.Combine(_ctx.SourceFolder, Path.GetFileNameWithoutExtension(file));
-            Directory.CreateDirectory(destFolder);
 
-            Report(5, $"Extracting: {Path.GetFileName(file)}");
+            if (Directory.Exists(item))
+            {
+                // Scan folder for archives and extract them in-place? 
+                // To keep source clean and maintain logic, let's extract files found in folders to Temp too
+                var filesInFolder = Directory.GetFiles(item, "*.*", SearchOption.AllDirectories)
+                                             .Where(f => exts.Contains(Path.GetExtension(f).ToLowerInvariant()))
+                                             .ToList();
 
-            if (use7z)
-            {
-                var pInfo = new ProcessStartInfo
+                if (filesInFolder.Any())
                 {
-                    FileName = _ctx.Fallback7z,
-                    Arguments = $"x \"{file}\" -o\"{destFolder}\" -y",
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                };
-                using var p = Process.Start(pInfo);
-                if (p != null) await p.WaitForExitAsync(cancelToken);
-            }
-            else
-            {
-                string ext = Path.GetExtension(file).ToLowerInvariant();
-                if (ext == ".zip" || ext == ".cbz")
-                {
-                    await Task.Run(() =>
+                    foreach (var file in filesInFolder)
                     {
-                        ZipFile.ExtractToDirectory(file, destFolder, true);
-                    }, cancelToken);
+                        string subDest = Path.Combine(extractionRoot, Path.GetFileNameWithoutExtension(file));
+                        await ExtractArchive(file, subDest, use7z, cancelToken);
+                        if (_ctx.DeleteSource) File.Delete(file);
+                    }
+                }
+                results.Add(item); // Keep the folder itself
+            }
+            else if (File.Exists(item))
+            {
+                string ext = Path.GetExtension(item).ToLowerInvariant();
+                if (exts.Contains(ext))
+                {
+                    string subDest = Path.Combine(extractionRoot, Path.GetFileNameWithoutExtension(item));
+                    await ExtractArchive(item, subDest, use7z, cancelToken);
+                    results.Add(subDest); // Process the extracted folder instead of the zip
+                    // Note: if deleteSource is true, we delete it later or now? Let's do it now for files if requested
+                    if (_ctx.DeleteSource) File.Delete(item);
                 }
                 else
                 {
-                    Report(5, $"Cannot extract {file} without 7z.exe configured.");
-                    continue;
+                    results.Add(item); // Not an archive, just a file
                 }
             }
-
-            // Step 2: Delete archive after extraction
-            File.Delete(file);
         }
+        return results;
     }
 
-    private void ReplicateFolderStructure(string source, string target)
+    private async Task ExtractArchive(string file, string destFolder, bool use7z, CancellationToken cancelToken)
     {
-        Directory.CreateDirectory(target);
-        foreach (var dirPath in Directory.GetDirectories(source, "*", SearchOption.AllDirectories))
+        Directory.CreateDirectory(destFolder);
+        Report(5, $"Extracting: {Path.GetFileName(file)}");
+
+        if (use7z)
         {
-            string newDir = dirPath.Replace(source, target);
-            Directory.CreateDirectory(newDir);
+            var pInfo = new ProcessStartInfo
+            {
+                FileName = _ctx.Fallback7z,
+                Arguments = $"x \"{file}\" -o\"{destFolder}\" -y",
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            using var p = Process.Start(pInfo);
+            if (p != null) await p.WaitForExitAsync(cancelToken);
+        }
+        else
+        {
+            string ext = Path.GetExtension(file).ToLowerInvariant();
+            if (ext == ".zip" || ext == ".cbz")
+            {
+                await Task.Run(() => ZipFile.ExtractToDirectory(file, destFolder, true), cancelToken);
+            }
+            else
+            {
+                Report(5, $"Cannot extract {file} without 7z.exe configured.");
+            }
         }
     }
 
-    private async Task ConvertImagesAsync(CancellationToken cancelToken)
+    private void ReplicateFolderStructure(List<string> items, string targetBase)
     {
-        var allFiles = Directory.GetFiles(_ctx.SourceFolder, "*.*", SearchOption.AllDirectories).ToList();
+        Directory.CreateDirectory(targetBase);
+        foreach (var item in items)
+        {
+            if (Directory.Exists(item))
+            {
+                string rootName = Path.GetFileName(item);
+                string targetRoot = Path.Combine(targetBase, rootName);
+                Directory.CreateDirectory(targetRoot);
+                foreach (var dirPath in Directory.GetDirectories(item, "*", SearchOption.AllDirectories))
+                {
+                    string relative = dirPath.Substring(item.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                    Directory.CreateDirectory(Path.Combine(targetRoot, relative));
+                }
+            }
+        }
+    }
+
+    private async Task ConvertImagesAsync(List<string> items, CancellationToken cancelToken)
+    {
         var imageExts = new[] { ".jpg", ".jpeg", ".png", ".bmp", ".webp", ".gif" };
-        
-        var filesToProcess = allFiles.Where(f => imageExts.Contains(Path.GetExtension(f).ToLowerInvariant())).ToList();
-        int total = filesToProcess.Count;
+        var tasks = new List<(string SourceFile, string DestFile)>();
+
+        foreach (var item in items)
+        {
+            if (Directory.Exists(item))
+            {
+                string rootName = Path.GetFileName(item);
+                var files = Directory.GetFiles(item, "*.*", SearchOption.AllDirectories)
+                                     .Where(f => imageExts.Contains(Path.GetExtension(f).ToLowerInvariant()));
+                foreach (var f in files)
+                {
+                    string relative = f.Substring(item.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                    string dest = Path.Combine(_ctx.TempFolder, rootName, relative);
+                    dest = Path.ChangeExtension(dest, ".webp");
+                    tasks.Add((f, dest));
+                }
+            }
+            else if (File.Exists(item))
+            {
+                if (imageExts.Contains(Path.GetExtension(item).ToLowerInvariant()))
+                {
+                    string dest = Path.Combine(_ctx.TempFolder, Path.GetFileName(item));
+                    dest = Path.ChangeExtension(dest, ".webp");
+                    tasks.Add((item, dest));
+                }
+            }
+        }
+
+        int total = tasks.Count;
         int completed = 0;
         bool missingDllLogged = false;
 
@@ -218,53 +299,36 @@ public class ComicProcessor
 
         await Task.Run(() =>
         {
-            Parallel.ForEach(filesToProcess, parallelOptions, file =>
+            Parallel.ForEach(tasks, parallelOptions, task =>
             {
                 try
                 {
-                    string relativePath = file.Substring(_ctx.SourceFolder.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                    string destPath = Path.Combine(_ctx.TempFolder, relativePath);
-                    destPath = Path.ChangeExtension(destPath, ".webp");
-                    
-                    using var image = new MagickImage(file);
+                    Directory.CreateDirectory(Path.GetDirectoryName(task.DestFile)!);
+                    using var image = new MagickImage(task.SourceFile);
                     
                     if (_ctx.TrimPages)
                     {
-                        // Use a fuzz factor so near-white (slightly off-white) borders are also trimmed
                         image.ColorFuzz = new Percentage(5);
-                        
                         using var testClone = image.Clone() as MagickImage;
                         if (testClone != null)
                         {
                             testClone.Trim();
                             testClone.ResetPage();
-                            
-                            // trim:minSize means the trimmed result must be >= user setting
-                            // in EACH dimension (width and height), matching magick's behaviour
-                            bool widthOk  = testClone.Width  >= image.Width  * _ctx.TrimMinSize;
-                            bool heightOk = testClone.Height >= image.Height * _ctx.TrimMinSize;
-                            
-                            if (widthOk && heightOk)
+                            if (testClone.Width >= image.Width * _ctx.TrimMinSize && testClone.Height >= image.Height * _ctx.TrimMinSize)
                             {
                                 image.Trim();
                                 image.ResetPage();
                             }
-                            // else: skip trim — border was too large relative to the image
                         }
-                        
-                        image.ColorFuzz = new Percentage(0); // reset fuzz
+                        image.ColorFuzz = new Percentage(0);
                     }
 
-                    // Smart Trim: trim borders where >= 97% of pixels are background,
-                    // even if a small portion (like a page number) interrupts the edge
                     if (_ctx.SmartTrimPages)
                     {
                         var bounds = CalculateSmartTrimBounds(image, rowBgThreshold: _ctx.SmartTrimThreshold, colorTolerancePct: _ctx.SmartTrimTolerance);
                         if (bounds is not null)
                         {
-                            bool widthOk  = bounds.Width  >= image.Width  * _ctx.TrimMinSize;
-                            bool heightOk = bounds.Height >= image.Height * _ctx.TrimMinSize;
-                            if (widthOk && heightOk)
+                            if (bounds.Width >= image.Width * _ctx.TrimMinSize && bounds.Height >= image.Height * _ctx.TrimMinSize)
                             {
                                 image.Crop(bounds);
                                 image.ResetPage();
@@ -272,37 +336,27 @@ public class ComicProcessor
                         }
                     }
 
-                    if (magResize.HasValue)
-                    {
-                        image.Resize(magResize.Value);
-                    }
+                    if (magResize.HasValue) image.Resize(magResize.Value);
 
                     image.Quality = (uint)_ctx.Quality;
                     image.Format = MagickFormat.WebP;
-                    image.Write(destPath);
+                    image.Write(task.DestFile);
                 }
                 catch (Exception ex)
                 {
                     if ((ex is DllNotFoundException || ex is TypeInitializationException) && !missingDllLogged)
                     {
                         missingDllLogged = true;
-                        Report(0, $"CRITICAL ERROR: Failed to load ImageMagick DLL. Ensure the Magick.NET DLL is present. Details: {ex.Message}");
+                        Report(0, $"CRITICAL ERROR: Failed to load ImageMagick DLL. Details: {ex.Message}");
                     }
-                    else if (!missingDllLogged)
-                    {
-                        Debug.WriteLine($"Failed to process {file}: {ex.Message}");
-                    }
-
-                    // Copy original file as fallback if conversion fails
-                    string relativePath = file.Substring(_ctx.SourceFolder.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                    string destPath = Path.Combine(_ctx.TempFolder, relativePath);
-                    File.Copy(file, destPath, true);
+                    // Fallback copy
+                    try { File.Copy(task.SourceFile, Path.Combine(Path.GetDirectoryName(task.DestFile)!, Path.GetFileName(task.SourceFile)), true); } catch { }
                 }
 
                 int c = Interlocked.Increment(ref completed);
                 if (c % 5 == 0 || c == total)
                 {
-                    int pct = 25 + (int)((c / (double)total) * 55); // runs from 25% to 80%
+                    int pct = 25 + (int)((c / (double)total) * 55);
                     Report(pct, $"Converted {c} of {total} files");
                 }
             });
@@ -317,16 +371,19 @@ public class ComicProcessor
             if (_ctx.ZipMode == "single")
             {
                 // Single CBZ for all items
-                var items = new DirectoryInfo(_ctx.TempFolder).GetFileSystemInfos().Select(i => i.Name).ToList();
+                var items = new DirectoryInfo(_ctx.TempFolder).GetFileSystemInfos()
+                                      .Where(i => i.Name != "_extracted")
+                                      .Select(i => i.Name).ToList();
                 string baseName = GetSmartBaseName(items);
                 string zipPath = GetUniqueFilePath(destDir, $"{baseName}.cbz");
                 ZipFile.CreateFromDirectory(_ctx.TempFolder, zipPath, CompressionLevel.NoCompression, false);
                 totalSize += new FileInfo(zipPath).Length;
             }
-            else // "individual"
+            else if (_ctx.ZipMode == "individual")
             {
                 foreach (var dir in Directory.GetDirectories(_ctx.TempFolder))
                 {
+                    if (Path.GetFileName(dir) == "_extracted") continue;
                     cancelToken.ThrowIfCancellationRequested();
                     var dInfo = new DirectoryInfo(dir);
                     string zipPath = GetUniqueFilePath(destDir, $"{dInfo.Name}.cbz");
@@ -342,6 +399,16 @@ public class ComicProcessor
                     archive.CreateEntryFromFile(file, Path.GetFileName(file), CompressionLevel.NoCompression);
                     totalSize += new FileInfo(zipPath).Length;
                 }
+            }
+            else // "none"
+            {
+                var items = new DirectoryInfo(_ctx.TempFolder).GetFileSystemInfos()
+                                      .Where(i => i.Name != "_extracted")
+                                      .Select(i => i.Name).ToList();
+                string baseName = GetSmartBaseName(items);
+                string targetPath = GetUniqueFolderPath(destDir, baseName);
+                CopyDirectory(_ctx.TempFolder, targetPath, "_extracted");
+                totalSize += CalculateDirectorySize(targetPath);
             }
             return totalSize;
         }, cancelToken);
@@ -503,6 +570,33 @@ public class ComicProcessor
         // Fallback if no common pattern: use first item basis
         var firstMatch = regex.Match(first);
         return firstMatch.Success ? firstMatch.Groups[1].Value.Trim(' ', '-', '_', '.', '(') : Path.GetFileNameWithoutExtension(first);
+    }
+
+    private void CopyDirectory(string sourceDir, string destDir, string? excludeName = null)
+    {
+        Directory.CreateDirectory(destDir);
+        foreach (var file in Directory.GetFiles(sourceDir, "*", SearchOption.AllDirectories))
+        {
+            string relative = file.Substring(sourceDir.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            if (!string.IsNullOrEmpty(excludeName) && relative.StartsWith(excludeName)) continue;
+            
+            string target = Path.Combine(destDir, relative);
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            File.Copy(file, target, true);
+        }
+    }
+
+    private string GetUniqueFolderPath(string destDir, string folderName)
+    {
+        string fullPath = Path.Combine(destDir, folderName);
+        if (!Directory.Exists(fullPath)) return fullPath;
+
+        int i = 1;
+        while (Directory.Exists(fullPath = Path.Combine(destDir, $"{folderName}_{i:D3}")))
+        {
+            i++;
+        }
+        return fullPath;
     }
 
     private string GetUniqueFilePath(string destDir, string fileName)

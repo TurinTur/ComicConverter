@@ -6,15 +6,16 @@
         Closing="Window_Closing">
     <Grid Margin="10">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/> <!-- Folders -->
+            <RowDefinition Height="Auto"/> <!-- Common Paths -->
+            <RowDefinition Height="200"/>  <!-- Items to Process -->
             <RowDefinition Height="Auto"/> <!-- Settings -->
             <RowDefinition Height="Auto"/> <!-- Checkboxes & Modes -->
             <RowDefinition Height="Auto"/> <!-- Start Button & Progress -->
             <RowDefinition Height="*"/>    <!-- Log -->
         </Grid.RowDefinitions>
 
-        <!-- FOLDERS -->
-        <GroupBox Header="Directories" Grid.Row="0" Margin="0,0,0,10" Padding="5">
+        <!-- COMMON PATHS -->
+        <GroupBox Header="Common Paths" Grid.Row="0" Margin="0,0,0,10" Padding="5">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
@@ -25,29 +26,42 @@
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
-                <TextBlock Text="Source Folder:" Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Margin="5"/>
-                <TextBox x:Name="TxtSourceFolder" Grid.Row="0" Grid.Column="1" Margin="5" ToolTip="Folder containing your original images/archives"/>
-                <Button Content="Browse..." Grid.Row="0" Grid.Column="2" Margin="5" Width="75" Click="BtnBrowseSource_Click"/>
+                <TextBlock Text="Temp/Target Folder:" Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Margin="5"/>
+                <TextBox x:Name="TxtTempFolder" Grid.Row="0" Grid.Column="1" Margin="5" ToolTip="Folder where extraction and conversion happens"/>
+                <Button Content="Browse..." Grid.Row="0" Grid.Column="2" Margin="5" Width="75" Click="BtnBrowseTemp_Click"/>
 
-                <TextBlock Text="Temp/Target Folder:" Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Margin="5"/>
-                <TextBox x:Name="TxtTempFolder" Grid.Row="1" Grid.Column="1" Margin="5" ToolTip="Folder where extraction and conversion happens"/>
-                <Button Content="Browse..." Grid.Row="1" Grid.Column="2" Margin="5" Width="75" Click="BtnBrowseTemp_Click"/>
+                <TextBlock Text="Final Output Folder:" Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Margin="5"/>
+                <TextBox x:Name="TxtFinalFolder" Grid.Row="1" Grid.Column="1" Margin="5" ToolTip="Where the final CBZ files will be copied"/>
+                <Button Content="Browse..." Grid.Row="1" Grid.Column="2" Margin="5" Width="75" Click="BtnBrowseFinal_Click"/>
 
-                <TextBlock Text="Final Output Folder:" Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Margin="5"/>
-                <TextBox x:Name="TxtFinalFolder" Grid.Row="2" Grid.Column="1" Margin="5" ToolTip="Where the final CBZ files will be copied"/>
-                <Button Content="Browse..." Grid.Row="2" Grid.Column="2" Margin="5" Width="75" Click="BtnBrowseFinal_Click"/>
+                <TextBlock Text="Fallback 7z.exe (Opt):" Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Margin="5"/>
+                <TextBox x:Name="Txt7zPath" Grid.Row="2" Grid.Column="1" Margin="5" ToolTip="Leave empty to use built-in C# SharpCompress"/>
+                <Button Content="Browse..." Grid.Row="2" Grid.Column="2" Margin="5" Width="75" Click="BtnBrowse7z_Click"/>
+            </Grid>
+        </GroupBox>
 
-                <TextBlock Text="Fallback 7z.exe (Opt):" Grid.Row="3" Grid.Column="0" VerticalAlignment="Center" Margin="5"/>
-                <TextBox x:Name="Txt7zPath" Grid.Row="3" Grid.Column="1" Margin="5" ToolTip="Leave empty to use built-in C# SharpCompress"/>
-                <Button Content="Browse..." Grid.Row="3" Grid.Column="2" Margin="5" Width="75" Click="BtnBrowse7z_Click"/>
+        <!-- ITEMS TO PROCESS -->
+        <GroupBox Header="Items to Process" Grid.Row="1" Margin="0,0,0,10" Padding="5">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                
+                <ListBox x:Name="LstSourceItems" Margin="5" SelectionMode="Extended"/>
+                
+                <StackPanel Grid.Column="1" VerticalAlignment="Top">
+                    <Button Content="Add Folder..." Margin="5" Width="90" Click="BtnAddFolder_Click"/>
+                    <Button Content="Add File(s)..." Margin="5" Width="90" Click="BtnAddFiles_Click"/>
+                    <Button x:Name="BtnRemoveItem" Content="Remove" Margin="5" Width="90" Click="BtnRemoveItem_Click"/>
+                </StackPanel>
             </Grid>
         </GroupBox>
 
         <!-- SETTINGS -->
-        <GroupBox Header="Conversion Settings" Grid.Row="1" Margin="0,0,0,10" Padding="5">
+        <GroupBox Header="Conversion Settings" Grid.Row="2" Margin="0,0,0,10" Padding="5">
             <UniformGrid Columns="3">
                 <StackPanel Orientation="Horizontal" Margin="5">
                     <TextBlock Text="Threads:" VerticalAlignment="Center" Margin="0,0,5,0"/>
@@ -65,7 +79,7 @@
         </GroupBox>
 
         <!-- CHECKBOXES & MODES -->
-        <GroupBox Header="Options &amp; Mode" Grid.Row="2" Margin="0,0,0,10" Padding="5">
+        <GroupBox Header="Options &amp; Mode" Grid.Row="3" Margin="0,0,0,10" Padding="5">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
@@ -84,7 +98,8 @@
                 <StackPanel Grid.Column="1" Margin="5">
                     <TextBlock Text="Zip Mode:" FontWeight="Bold" Margin="0,0,0,5"/>
                     <RadioButton x:Name="RbZipSingle" Content="Single (One CBZ for all)" IsChecked="True" Margin="0,0,0,5"/>
-                    <RadioButton x:Name="RbZipIndividual" Content="Individual (One CBZ per folder/file)"/>
+                    <RadioButton x:Name="RbZipIndividual" Content="Individual (One CBZ per folder/file)" Margin="0,0,0,5"/>
+                    <RadioButton x:Name="RbZipNone" Content="None (Keep folder structure)"/>
                     
                     <TextBlock Text="Trim Settings:" FontWeight="Bold" Margin="0,10,0,5"/>
                     <Grid>
@@ -112,16 +127,17 @@
         </GroupBox>
 
         <!-- START BUTTON & PROGRESS -->
-        <StackPanel Grid.Row="3" Margin="0,0,0,10">
+        <StackPanel Grid.Row="4" Margin="0,0,0,10">
             <Button x:Name="BtnStart" Content="START CONVERSION" Height="40" FontSize="16" FontWeight="Bold" Click="BtnStart_Click"/>
             <ProgressBar x:Name="PbOverall" Height="20" Margin="0,10,0,0"/>
             <TextBlock x:Name="TxtStatus" Text="Ready" Margin="0,5,0,0" HorizontalAlignment="Center" FontWeight="Bold"/>
         </StackPanel>
 
         <!-- LOG -->
-        <GroupBox Header="Log" Grid.Row="4" Padding="5">
+        <GroupBox Header="Log" Grid.Row="5" Padding="5">
             <TextBox x:Name="TxtLog" IsReadOnly="True" VerticalScrollBarVisibility="Auto" AcceptsReturn="True" TextWrapping="Wrap" FontFamily="Consolas"/>
         </GroupBox>
+
 
     </Grid>
 </Window>

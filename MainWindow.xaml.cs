@@ -9,7 +9,7 @@ namespace ComicConverter;
 
 public class AppSettings
 {
-    public string SourceFolder { get; set; } = string.Empty;
+    public List<string> SourceItems { get; set; } = new();
     public string TempFolder { get; set; } = string.Empty;
     public string FinalFolder { get; set; } = string.Empty;
     public string Fallback7z { get; set; } = string.Empty;
@@ -30,9 +30,12 @@ public class AppSettings
 
 public partial class MainWindow : Window
 {
+    public System.Collections.ObjectModel.ObservableCollection<string> SourceItems { get; } = new();
+
     public MainWindow()
     {
         InitializeComponent();
+        LstSourceItems.ItemsSource = SourceItems;
         TxtTempFolder.Text = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "temp");
         TxtThreads.Text = (Environment.ProcessorCount -1).ToString();
         LoadSettings();
@@ -50,7 +53,11 @@ public partial class MainWindow : Window
                 var settings = JsonSerializer.Deserialize<AppSettings>(json);
                 if (settings != null)
                 {
-                    TxtSourceFolder.Text = settings.SourceFolder;
+                    SourceItems.Clear();
+                    if (settings.SourceItems != null)
+                    {
+                        foreach (var item in settings.SourceItems) SourceItems.Add(item);
+                    }
                     if (!string.IsNullOrWhiteSpace(settings.TempFolder)) TxtTempFolder.Text = settings.TempFolder;
                     TxtFinalFolder.Text = settings.FinalFolder;
                     Txt7zPath.Text = settings.Fallback7z;
@@ -67,6 +74,7 @@ public partial class MainWindow : Window
                     TxtSmartTrimTolerance.Text = settings.SmartTrimTolerance;
                     RbZipSingle.IsChecked = settings.ZipMode == "single";
                     RbZipIndividual.IsChecked = settings.ZipMode == "individual";
+                    RbZipNone.IsChecked = settings.ZipMode == "none";
                     ChkIncludeRange.IsChecked = settings.IncludeRangeInName;
                 }
             }
@@ -80,7 +88,7 @@ public partial class MainWindow : Window
         {
             var settings = new AppSettings
             {
-                SourceFolder = TxtSourceFolder.Text,
+                SourceItems = SourceItems.ToList(),
                 TempFolder = TxtTempFolder.Text,
                 FinalFolder = TxtFinalFolder.Text,
                 Fallback7z = Txt7zPath.Text,
@@ -95,7 +103,7 @@ public partial class MainWindow : Window
                 TrimMinSize = TxtTrimMinSize.Text,
                 SmartTrimThreshold = TxtSmartTrimThreshold.Text,
                 SmartTrimTolerance = TxtSmartTrimTolerance.Text,
-                ZipMode = RbZipSingle.IsChecked == true ? "single" : "individual",
+                ZipMode = RbZipSingle.IsChecked == true ? "single" : (RbZipIndividual.IsChecked == true ? "individual" : "none"),
                 IncludeRangeInName = ChkIncludeRange.IsChecked == true
             };
             var json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
@@ -118,12 +126,47 @@ public partial class MainWindow : Window
         });
     }
 
-    private void BtnBrowseSource_Click(object sender, RoutedEventArgs e)
+    private void BtnAddFolder_Click(object sender, RoutedEventArgs e)
     {
-        var dialog = new Microsoft.Win32.OpenFolderDialog { Title = "Select Source Folder" };
+        var dialog = new Microsoft.Win32.OpenFolderDialog 
+        { 
+            Title = "Select Folder(s) to Process",
+            Multiselect = true 
+        };
         if (dialog.ShowDialog() == true)
         {
-            TxtSourceFolder.Text = dialog.FolderName;
+            foreach (var folder in dialog.FolderNames)
+            {
+                if (!SourceItems.Contains(folder))
+                    SourceItems.Add(folder);
+            }
+        }
+    }
+
+    private void BtnAddFiles_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "Select File(s) to Process",
+            Filter = "Comic Archives (*.zip;*.cbz;*.7z;*.cbr;*.rar)|*.zip;*.cbz;*.7z;*.cbr;*.rar|Images (*.jpg;*.jpeg;*.png;*.webp)|*.jpg;*.jpeg;*.png;*.webp|All Files (*.*)|*.*",
+            Multiselect = true
+        };
+        if (dialog.ShowDialog() == true)
+        {
+            foreach (var file in dialog.FileNames)
+            {
+                if (!SourceItems.Contains(file))
+                    SourceItems.Add(file);
+            }
+        }
+    }
+
+    private void BtnRemoveItem_Click(object sender, RoutedEventArgs e)
+    {
+        var selected = LstSourceItems.SelectedItems.Cast<string>().ToList();
+        foreach (var item in selected)
+        {
+            SourceItems.Remove(item);
         }
     }
 
@@ -162,11 +205,11 @@ public partial class MainWindow : Window
     private async void BtnStart_Click(object sender, RoutedEventArgs e)
     {
         // Basic validation
-        if (string.IsNullOrWhiteSpace(TxtSourceFolder.Text) ||
+        if (SourceItems.Count == 0 ||
             string.IsNullOrWhiteSpace(TxtTempFolder.Text) ||
             string.IsNullOrWhiteSpace(TxtFinalFolder.Text))
         {
-            MessageBox.Show("Please select Source, Temp, and Final folders.", "Missing Paths", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show("Please add items to process and select Temp and Final folders.", "Missing Settings", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
 
@@ -177,7 +220,6 @@ public partial class MainWindow : Window
         LogActivity("Process started...");
 
         // Extract settings
-        string source = TxtSourceFolder.Text;
         string temp = TxtTempFolder.Text;
         string final = TxtFinalFolder.Text;
         string fallback7z = Txt7zPath.Text;
@@ -206,13 +248,13 @@ public partial class MainWindow : Window
         double.TryParse(TxtSmartTrimTolerance.Text, out double smartTrimTolerance);
         if (smartTrimTolerance < 0) smartTrimTolerance = 8.0;
 
-        string zipMode = RbZipSingle.IsChecked == true ? "single" : "individual";
+        string zipMode = RbZipSingle.IsChecked == true ? "single" : (RbZipIndividual.IsChecked == true ? "individual" : "none");
 
         try
         {
             var ctx = new ProcessorContext
             {
-                SourceFolder = source,
+                SourceItems = SourceItems.ToList(),
                 TempFolder = temp,
                 FinalFolder = final,
                 Fallback7z = fallback7z,

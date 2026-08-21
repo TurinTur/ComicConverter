@@ -486,3 +486,9 @@ $RECYCLE.BIN/
 # App outputs
 temp/
 publish/
+
+# Comic test data (large CBR files)
+testcomic/
+
+# Rust build artifacts
+RustVersion2/comic_converter/target/

@@ -1,59 +1,37 @@
-# Comic WebP Converter WPF Application
+# Comic Converter Rust Refactor Implementation Plan
 
-The goal is to convert your PowerShell script `WebPJobPSv2 - copia.ps1` into a standalone C# WPF application for Windows. This application will feature a modern graphical user interface and manage the underlying processing asynchronously while keeping the form responsive.
+## Goal
+Rewrite the C# WPF Comic Converter application into a standalone Rust application to drastically reduce the executable size from ~25MB (framework-dependent + Magick) / 150MB (self-contained) down to a ~5-8MB true standalone `.exe`.
 
-## Decisions Made
+## Proposed UI Framework
+We will use **egui (eframe)**. It is an immediate-mode GUI that compiles purely to machine code, requiring zero external dependencies like WebView2, making it perfect for a tiny, portable utility.
 
-- **ImageMagick**: We will use **Magick.NET** (Q16-AnyCPU) for built-in processing.
-- **Archiving**: We will use a C# library (`SharpCompress` or `System.IO.Compression`) for extraction and creation of CBZ files, but we will add an option in the UI to specify a fallback `7z.exe` path if the user prefers external extraction.
-- **Git Repository**: Set up remote at `https://github.com/TurinTur/ComicConverter.git`.
+## Architectural Changes (C# to Rust mappings)
 
-## Proposed Changes
+### 1. Concurrency and Main Workflow
+- **C#**: `Parallel.ForEach(tasks, parallelOptions, ...)`
+- **Rust**: Use the `rayon` crate for trivial data-parallelism (`tasks.par_iter().for_each(|task| { ... })`).
+- *Impact*: Will match or exceed current parallelism performance effortlessly.
 
-### 1. Workspace and Git Setup
-- Create project directory at `C:\temp\ComicConverter`.
-- Initialize Git repository.
-- Commit the initial scaffolding.
+### 2. File and Archive Extraction
+- **C#**: `System.IO.Compression.ZipFile` and `Process.Start` for 7z.exe.
+- **Rust**: 
+  - Standard Zips: `zip` crate for native extraction.
+  - 7z Fallback: Use `std::process::Command::new` to trigger the fallback `7z` executable identically to the C# workflow.
 
-### 2. WPF Application Project Initialization
-I will create a new WPF project (`ComicWebPConverter`) using .NET 8.0 targeting Windows.
+### 3. Image Processing (Replacing Magick.NET)
+- **Library**: We will rely heavily on the `image` crate.
+- **Resizing**: `image::imageops::resize(..., FilterType::Lanczos3)`.
+- **Formatting & Quality**: The `webp` crate encoding logic.
+- **Smart Trim**: Completely ported by manually iterating over the image buffer (`img.get_pixel(x,y)`) identically to the current `CalculateSmartTrimBounds`. We will compute bounding boxes based on user-defined percentage tolerances and use `image::imageops::crop` to slice the final image.
 
-### 3. User Interface (GUI)
-The UI will have a clean, easy-to-use form:
-- **Folders Selection:** Text boxes with "Browse" buttons for:
-  - Source Folder
-  - Temp Target Folder
-  - Final Output Folder
-- **Conversion Settings:**
-  - Threads (Numeric Up/Down or Textbox)
-  - Resize percentage (e.g., `100%`)
-  - Quality (Slider or Textbox, 0-100)
-- **Options:**
-  - Checkbox: "Delete Source if final size is smaller"
-  - Checkbox: "Copy final zip to final folder"
-  - Zip Mode: Radio Buttons (Single vs Individual)
-- **Execution Controls:** 
-  - "Start" button
-  - Progress Bar for overall progress.
-  - A scrollable Text/Log Box.
+## Open Questions for the Next Chat
+> [!IMPORTANT]
+> When you open the new chat, let me know if you would prefer **Tauri** instead of **egui** if you want the app to look like a standard web website rather than a custom tool interface! 
 
-### 4. Application Logic implementation
-- **Step 1:** Extract archives to subfolders.
-- **Step 2:** Delete them when extracted.
-- **Step 3:** Replicate folder structure from Source to Target.
-- **Step 4:** Launch image conversions via `Parallel.ForEach` using bundled ImageMagick or Magick.NET.
-- **Step 5:** Archive the results back to `.cbz`.
-- **Step 6:** Check size comparisons and delete source files if chosen.
-
-
-
-## Verification Plan
-
-### Manual Verification
-- Run the WPF application locally.
-- Verify parameters adjust the conversion correctly.
-- Ensure commits are correctly pushed to your GitHub repository once the URL is provided.
-
-## AI Instructions
-
-**CRITICAL RULE:** Every time I (the AI) make a change to the codebase, I must automatically make a local `git commit` with a descriptive summary of my edits without needing the user to remind me.
+## Phase Breakdown for New Chat
+1. **Init Project**: `cargo new comic_converter` and setup `Cargo.toml`.
+2. **Build Core Logic**: Write the Rust module for filesystem traversal, extraction, and archiving.
+3. **Build Image Engine**: Migrate the `CalculateSmartTrimBounds` and WebP generation logic.
+4. **Build UI (egui)**: Replicate the checkboxes, text fields, and progress bars.
+5. **Final Polish & Release**: Build with `cargo build --release` utilizing `lto = true` and `opt-level = "z"` to aggressively strip it to the smallest possible `.exe`.

@@ -1,0 +1,9 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "cargo build": true,
+        "/^cargo \\+stable-x86_64-pc-windows-gnu build --release 2>&1 \\| Select-Object -Last 25$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
+}

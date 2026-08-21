@@ -491,4 +491,4 @@ publish/
 testcomic/
 
 # Rust build artifacts
-RustVersion2/comic_converter/target/
+/target/

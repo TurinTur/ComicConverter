@@ -110,49 +110,48 @@ impl ImageEngine {
         // PERFORMANCE: integer math for the per-pixel check (|a-b| via saturating
         // abs_diff) instead of three f64 conversions + float ops per pixel.
         let tolerance_i = (255.0 * (color_tolerance_pct / 100.0)).round() as i32;
+        let (bg_r, bg_g, bg_b) = (bg_r as u8, bg_g as u8, bg_b as u8);
 
         let is_background = |x: u32, y: u32| -> bool {
             let p = px(x, y);
-            let diff = (p[0].abs_diff(bg_r as u8) as i32
-                + p[1].abs_diff(bg_g as u8) as i32
-                + p[2].abs_diff(bg_b as u8) as i32)
+            let diff = (p[0].abs_diff(bg_r) as i32
+                + p[1].abs_diff(bg_g) as i32
+                + p[2].abs_diff(bg_b) as i32)
                 / 3;
             diff <= tolerance_i
         };
 
-        let row_bg_fraction = |y: u32, x_from: u32, x_to: u32| -> f64 {
-            let total = x_to.saturating_sub(x_from) + 1;
-            let mut count = 0;
-            for x in x_from..=x_to {
-                if is_background(x, y) {
+        // PERFORMANCE: stops scanning a line as soon as the threshold can no longer be met.
+        fn line_is_background(total: u32, threshold: f64, is_bg_at: impl Fn(u32) -> bool) -> bool {
+            if total == 0 {
+                return true;
+            }
+            let mut count = 0u32;
+            let mut misses = 0u32;
+            for i in 0..total {
+                if is_bg_at(i) {
                     count += 1;
+                } else {
+                    misses += 1;
+                    if ((total - misses) as f64) / (total as f64) < threshold {
+                        return false;
+                    }
                 }
             }
-            if total > 0 {
-                (count as f64) / (total as f64)
-            } else {
-                1.0
-            }
+            (count as f64) / (total as f64) >= threshold
+        }
+
+        let row_is_bg = |y: u32, x_from: u32, x_to: u32| -> bool {
+            line_is_background(x_to.saturating_sub(x_from) + 1, row_bg_threshold, |i| is_background(x_from + i, y))
         };
 
-        let col_bg_fraction = |x: u32, y_from: u32, y_to: u32| -> f64 {
-            let total = y_to.saturating_sub(y_from) + 1;
-            let mut count = 0;
-            for y in y_from..=y_to {
-                if is_background(x, y) {
-                    count += 1;
-                }
-            }
-            if total > 0 {
-                (count as f64) / (total as f64)
-            } else {
-                1.0
-            }
+        let col_is_bg = |x: u32, y_from: u32, y_to: u32| -> bool {
+            line_is_background(y_to.saturating_sub(y_from) + 1, row_bg_threshold, |i| is_background(x, y_from + i))
         };
 
         let mut top = 0;
         for y in 0..(height / 2) {
-            if row_bg_fraction(y, 0, width - 1) >= row_bg_threshold {
+            if row_is_bg(y, 0, width - 1) {
                 top = y + 1;
             } else {
                 break;
@@ -161,7 +160,7 @@ impl ImageEngine {
 
         let mut bottom = height - 1;
         for y in (top..=(height - 1)).rev() {
-            if row_bg_fraction(y, 0, width - 1) >= row_bg_threshold {
+            if row_is_bg(y, 0, width - 1) {
                 bottom = y.saturating_sub(1);
             } else {
                 break;
@@ -170,7 +169,7 @@ impl ImageEngine {
 
         let mut left = 0;
         for x in 0..(width / 2) {
-            if col_bg_fraction(x, top, bottom) >= row_bg_threshold {
+            if col_is_bg(x, top, bottom) {
                 left = x + 1;
             } else {
                 break;
@@ -179,7 +178,7 @@ impl ImageEngine {
 
         let mut right = width - 1;
         for x in (left..=(width - 1)).rev() {
-            if col_bg_fraction(x, top, bottom) >= row_bg_threshold {
+            if col_is_bg(x, top, bottom) {
                 right = x.saturating_sub(1);
             } else {
                 break;
@@ -224,6 +223,23 @@ mod tests {
         }
         let r = ImageEngine::calculate_smart_trim_bounds(&img, 1.0, 5.0).unwrap();
         assert_eq!((r.0, r.1, r.width(), r.height()), (20, 10, 60, 80));
+    }
+
+    #[test]
+    fn smart_trim_ignores_small_marks() {
+        let mut img = solid(100, 100, [255, 255, 255, 255]);
+        for y in 10..=89 {
+            for x in 20..=79 {
+                img.put_pixel(x, y, Rgba([0, 0, 0, 255]));
+            }
+        }
+        // A 2px "page number" in the bottom margin (2% of the row).
+        img.put_pixel(50, 95, Rgba([0, 0, 0, 255]));
+        img.put_pixel(51, 95, Rgba([0, 0, 0, 255]));
+        let r = ImageEngine::calculate_smart_trim_bounds(&img, 0.97, 8.0).unwrap();
+        assert_eq!((r.0, r.1, r.width(), r.height()), (20, 10, 60, 80));
+        let strict = ImageEngine::calculate_smart_trim_bounds(&img, 1.0, 8.0).unwrap();
+        assert_eq!(strict.1 + strict.height() - 1, 95);
     }
 
     #[test]

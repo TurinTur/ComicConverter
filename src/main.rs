@@ -220,19 +220,23 @@ impl ComicConverterApp {
 
     fn poll_progress(&mut self, ctx: &egui::Context) {
         let mut msgs = Vec::new();
+        let mut disconnected = false;
         if let Some(rx) = &self.progress_rx {
-            while let Ok(msg) = rx.try_recv() {
-                msgs.push((msg.percentage, msg.message));
+            loop {
+                match rx.try_recv() {
+                    Ok(msg) => msgs.push((msg.percentage, msg.message)),
+                    Err(mpsc::TryRecvError::Empty) => break,
+                    Err(mpsc::TryRecvError::Disconnected) => {
+                        disconnected = true;
+                        break;
+                    }
+                }
             }
             if !msgs.is_empty() {
                 ctx.request_repaint();
             }
-        } else if self.is_processing {
-            // Worker channel is gone but we never saw DONE (e.g. worker panicked);
-            // recover the UI instead of staying locked forever.
-            self.is_processing = false;
-            self.log_msg("Processing stopped unexpectedly.");
-            ctx.request_repaint();
+            // Without this the UI only polls on input events and progress appears frozen.
+            ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }
 
         let mut done = false;
@@ -248,6 +252,11 @@ impl ComicConverterApp {
         if done {
             self.is_processing = false;
             self.progress_rx = None;
+        } else if disconnected {
+            // Worker dropped the channel without sending DONE (e.g. it panicked).
+            self.is_processing = false;
+            self.progress_rx = None;
+            self.log_msg("ERROR: Processing stopped unexpectedly.");
         }
     }
 

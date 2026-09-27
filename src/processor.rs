@@ -51,7 +51,19 @@ impl ComicProcessor {
 
         let start_time = Instant::now();
         report(0, "Process started...".to_string());
-        
+
+        // Leftovers from a previous run (Delete Temp off) would otherwise be packed
+        // into this run's archive, so the temp folder is cleared first.
+        let temp_path = Path::new(&ctx.temp_folder);
+        let temp_abs = temp_path.canonicalize().unwrap_or_else(|_| temp_path.to_path_buf());
+        let inside_temp = |p: &str| {
+            Path::new(p).canonicalize().map(|c| c.starts_with(&temp_abs)).unwrap_or(false)
+        };
+        if ctx.source_items.iter().any(|s| inside_temp(s)) || (ctx.copy_final && inside_temp(&ctx.final_folder)) {
+            return Err("Sources and the final folder must not be inside the temp folder.".to_string());
+        }
+        Self::delete_directory_contents(temp_path).map_err(|e| format!("Failed to clean temp folder: {}", e))?;
+
         // Calculate initial size
         let mut initial_size: u64 = 0;
         for item in &ctx.source_items {
@@ -76,7 +88,7 @@ impl ComicProcessor {
 
         // Step 4: Convert
         report(25, "Step 4: Converting images to WebP...".to_string());
-        Self::convert_images(&ctx, &work_items, &report)?;
+        let failed_count = Self::convert_images(&ctx, &work_items, &report)?;
 
         let final_temp_size = Self::dir_size(Path::new(&ctx.temp_folder));
         report(80, format!("Conversion complete. Target temp size: {} MB", final_temp_size / (1024 * 1024)));
@@ -110,7 +122,9 @@ impl ComicProcessor {
         report(95, size_report);
 
         if ctx.delete_source {
-            if final_archive_size <= initial_size && final_archive_size > 0 {
+            if failed_count > 0 {
+                report(98, "Step 6: Some files failed to convert. Keeping source files.".to_string());
+            } else if final_archive_size <= initial_size && final_archive_size > 0 {
                 report(98, "Step 6: Final size is smaller. Deleting source files...".to_string());
                 for item in &ctx.source_items {
                     let p = Path::new(item);
@@ -170,15 +184,13 @@ impl ComicProcessor {
         for item in &ctx.source_items {
             let p = Path::new(item);
             if p.is_dir() {
-                if let Ok(entries) = walkdir::WalkDir::new(p).into_iter().collect::<Result<Vec<_>, _>>() {
-                    for entry in entries {
-                        if entry.file_type().is_file() {
-                            if let Some(ext) = entry.path().extension().and_then(|s| s.to_str()) {
-                                if exts.contains(&ext.to_lowercase().as_str()) {
-                                    let dest = push_archive(entry.path(), &mut used_names);
-                                    archives.push((entry.path().to_path_buf(), dest.clone()));
-                                    results.push(dest.to_string_lossy().to_string());
-                                }
+                for entry in walkdir::WalkDir::new(p).into_iter().filter_map(Result::ok) {
+                    if entry.file_type().is_file() {
+                        if let Some(ext) = entry.path().extension().and_then(|s| s.to_str()) {
+                            if exts.contains(&ext.to_lowercase().as_str()) {
+                                let dest = push_archive(entry.path(), &mut used_names);
+                                archives.push((entry.path().to_path_buf(), dest.clone()));
+                                results.push(dest.to_string_lossy().to_string());
                             }
                         }
                     }
@@ -201,6 +213,8 @@ impl ComicProcessor {
 
         // Extract in parallel (bounded by thread count). Errors are collected and
         // reported instead of silently swallowed.
+        // Source archives are NOT deleted here; that only happens in Step 6 after
+        // the size check.
         let errors: Vec<String> = archives
             .par_iter()
             .filter_map(|(file, dest)| {
@@ -209,12 +223,6 @@ impl ComicProcessor {
                     .map(|e| format!("Extraction failed for {}: {}", file.display(), e))
             })
             .collect();
-
-        if ctx.delete_source {
-            for (file, _) in &archives {
-                let _ = fs::remove_file(file);
-            }
-        }
 
         if errors.is_empty() {
             Ok(results)
@@ -255,7 +263,7 @@ impl ComicProcessor {
                 let mut archive = ZipArchive::new(f).map_err(|e| e.to_string())?;
                 archive.extract(dest_folder).map_err(|e| e.to_string())?;
             } else {
-                report(5, format!("Cannot extract {} without 7z.exe configured.", file.display()));
+                return Err(format!("Cannot extract {} without 7z.exe configured.", file.display()));
             }
         }
         Ok(())
@@ -275,12 +283,10 @@ impl ComicProcessor {
                 let target_root = base.join(root_name);
                 fs::create_dir_all(&target_root).map_err(|e| e.to_string())?;
 
-                if let Ok(entries) = walkdir::WalkDir::new(p).into_iter().collect::<Result<Vec<_>, _>>() {
-                    for entry in entries {
-                        if entry.file_type().is_dir() {
-                            if let Ok(relative) = entry.path().strip_prefix(p) {
-                                let _ = fs::create_dir_all(target_root.join(relative));
-                            }
+                for entry in walkdir::WalkDir::new(p).into_iter().filter_map(Result::ok) {
+                    if entry.file_type().is_dir() {
+                        if let Ok(relative) = entry.path().strip_prefix(p) {
+                            let _ = fs::create_dir_all(target_root.join(relative));
                         }
                     }
                 }
@@ -289,7 +295,8 @@ impl ComicProcessor {
         Ok(())
     }
 
-    fn convert_images<F>(ctx: &ProcessorContext, items: &[String], report: &F) -> Result<(), String>
+    /// Returns the number of files that could neither be converted nor copied.
+    fn convert_images<F>(ctx: &ProcessorContext, items: &[String], report: &F) -> Result<usize, String>
     where F: Fn(usize, String) + Sync + Send {
         let image_exts = vec!["jpg", "jpeg", "png", "bmp", "webp", "gif"];
         let mut tasks: Vec<(PathBuf, PathBuf)> = Vec::new();
@@ -308,15 +315,13 @@ impl ComicProcessor {
                         }
                     },
                 };
-                if let Ok(entries) = walkdir::WalkDir::new(p).into_iter().collect::<Result<Vec<_>, _>>() {
-                    for entry in entries {
-                        if entry.file_type().is_file() {
-                            if let Some(ext) = entry.path().extension().and_then(|s| s.to_str()) {
-                                if image_exts.contains(&ext.to_lowercase().as_str()) {
-                                    if let Ok(relative) = entry.path().strip_prefix(p) {
-                                        let dest = Path::new(&ctx.temp_folder).join(&root_name).join(relative).with_extension("webp");
-                                        tasks.push((entry.path().to_path_buf(), dest));
-                                    }
+                for entry in walkdir::WalkDir::new(p).into_iter().filter_map(Result::ok) {
+                    if entry.file_type().is_file() {
+                        if let Some(ext) = entry.path().extension().and_then(|s| s.to_str()) {
+                            if image_exts.contains(&ext.to_lowercase().as_str()) {
+                                if let Ok(relative) = entry.path().strip_prefix(p) {
+                                    let dest = Path::new(&ctx.temp_folder).join(&root_name).join(relative).with_extension("webp");
+                                    tasks.push((entry.path().to_path_buf(), dest));
                                 }
                             }
                         }
@@ -333,7 +338,7 @@ impl ComicProcessor {
         }
 
         let total = tasks.len();
-        if total == 0 { return Ok(()); }
+        if total == 0 { return Ok(0); }
 
         let completed = AtomicUsize::new(0);
         let failed = AtomicUsize::new(0);
@@ -417,7 +422,7 @@ impl ComicProcessor {
             report(80, format!("{} already-WebP page(s) copied without re-encoding", passthrough_count));
         }
 
-        Ok(())
+        Ok(failed_count)
     }
 
     fn parse_resize_percentage(s: &str) -> Option<f32> {
@@ -479,28 +484,29 @@ impl ComicProcessor {
 
     fn zip_dir(src: &str, dest: &str, exclude_root: Option<&str>) -> Result<(), String> {
         let file = fs::File::create(dest).map_err(|e| format!("Zip Error: {}", e))?;
-        let mut zip = ZipWriter::new(file);
+        let mut zip = ZipWriter::new(io::BufWriter::new(file));
         let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
-        
-        let path = Path::new(src);
-        if let Ok(entries) = walkdir::WalkDir::new(path).into_iter().collect::<Result<Vec<_>, _>>() {
-            for entry in entries {
-                let p = entry.path();
-                // BUGFIX: to_str().unwrap() panicked on non-UTF8 paths; use to_string_lossy.
-                let name = p.strip_prefix(path).unwrap().to_string_lossy().replace("\\", "/");
-                if name.is_empty() { continue; }
-                
-                if let Some(ex) = exclude_root {
-                    if name.starts_with(ex) { continue; }
-                }
 
-                if p.is_file() {
-                    zip.start_file(name, options).map_err(|e| e.to_string())?;
-                    let mut f = fs::File::open(p).map_err(|e| e.to_string())?;
-                    std::io::copy(&mut f, &mut zip).map_err(|e| e.to_string())?;
-                } else if !name.is_empty() {
-                    zip.add_directory(name, options).map_err(|e| e.to_string())?;
-                }
+        let path = Path::new(src);
+        // Sorted so readers that follow archive order show pages in name order.
+        let walker = walkdir::WalkDir::new(path)
+            .sort_by_file_name()
+            .into_iter()
+            .filter_entry(|e| {
+                !(e.depth() == 1 && exclude_root.is_some_and(|ex| e.file_name() == ex))
+            });
+        for entry in walker {
+            let entry = entry.map_err(|e| e.to_string())?;
+            let p = entry.path();
+            let name = p.strip_prefix(path).map_err(|e| e.to_string())?.to_string_lossy().replace("\\", "/");
+            if name.is_empty() { continue; }
+
+            if entry.file_type().is_file() {
+                zip.start_file(name, options).map_err(|e| e.to_string())?;
+                let mut f = fs::File::open(p).map_err(|e| e.to_string())?;
+                io::copy(&mut f, &mut zip).map_err(|e| e.to_string())?;
+            } else if entry.file_type().is_dir() {
+                zip.add_directory(name, options).map_err(|e| e.to_string())?;
             }
         }
         zip.finish().map_err(|e| e.to_string())?;
@@ -509,7 +515,7 @@ impl ComicProcessor {
 
     fn zip_single_file(src: &Path, dest: &str) -> Result<(), String> {
         let file = fs::File::create(dest).map_err(|e| e.to_string())?;
-        let mut zip = ZipWriter::new(file);
+        let mut zip = ZipWriter::new(io::BufWriter::new(file));
         let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
         let name = src.file_name().unwrap().to_string_lossy().to_string();
         zip.start_file(name, options).map_err(|e| e.to_string())?;
@@ -521,18 +527,18 @@ impl ComicProcessor {
 
     fn copy_dir(src: &Path, dest: &Path, exclude_root: Option<&str>) -> Result<(), String> {
         fs::create_dir_all(dest).map_err(|e| e.to_string())?;
-        if let Ok(entries) = walkdir::WalkDir::new(src).into_iter().collect::<Result<Vec<_>, _>>() {
-            for entry in entries {
-                let p = entry.path();
-                if p.is_file() {
-                    let rel = p.strip_prefix(src).unwrap().to_string_lossy().to_string();
-                    if let Some(ex) = exclude_root {
-                        if rel.starts_with(ex) { continue; }
-                    }
-                    let tgt = dest.join(rel);
-                    fs::create_dir_all(tgt.parent().unwrap()).unwrap();
-                    fs::copy(p, tgt).unwrap();
+        let walker = walkdir::WalkDir::new(src).into_iter().filter_entry(|e| {
+            !(e.depth() == 1 && exclude_root.is_some_and(|ex| e.file_name() == ex))
+        });
+        for entry in walker {
+            let entry = entry.map_err(|e| e.to_string())?;
+            if entry.file_type().is_file() {
+                let rel = entry.path().strip_prefix(src).map_err(|e| e.to_string())?;
+                let tgt = dest.join(rel);
+                if let Some(parent) = tgt.parent() {
+                    fs::create_dir_all(parent).map_err(|e| e.to_string())?;
                 }
+                fs::copy(entry.path(), &tgt).map_err(|e| format!("Copy {} failed: {}", tgt.display(), e))?;
             }
         }
         Ok(())
@@ -610,8 +616,9 @@ impl ComicProcessor {
                 if !include_range { return pref_f.to_string() }
                 
                 // Get ranges (quick extract volume/number part)
-                let marker_f = first[pref_f.len()..].trim_matches(&[' ', '-', '_', '.', '(', ')'] as &[_]);
-                let marker_l = last[pref_l.len()..].trim_matches(&[' ', '-', '_', '.', '(', ')'] as &[_]);
+                // Slice at the capture end: pref_* may have had leading chars trimmed.
+                let marker_f = first[cap_f.get(1).unwrap().end()..].trim_matches(&[' ', '-', '_', '.', '(', ')'] as &[_]);
+                let marker_l = last[cap_l.get(1).unwrap().end()..].trim_matches(&[' ', '-', '_', '.', '(', ')'] as &[_]);
                 
                 if !marker_f.is_empty() && !marker_l.is_empty() && marker_f != marker_l {
                     return format!("{} {}-{}", pref_f, marker_f, marker_l);
@@ -661,6 +668,14 @@ mod tests {
         assert_eq!(
             ComicProcessor::get_smart_base_name(&names(&["YuYu Hakusho v01", "YuYu Hakusho v06"]), false),
             "YuYu Hakusho"
+        );
+    }
+
+    #[test]
+    fn base_name_range_with_leading_trimmed_chars() {
+        assert_eq!(
+            ComicProcessor::get_smart_base_name(&names(&[" Ñoño v01", " Ñoño v03"]), true),
+            "Ñoño v01-v03"
         );
     }
 
